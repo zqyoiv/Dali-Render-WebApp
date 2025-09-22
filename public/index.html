@@ -4,8 +4,219 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dali Render WebApp</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .input-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        label {
+            font-weight: bold;
+            min-width: 100px;
+        }
+        input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 100px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result-section {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .garden-state {
+            margin-top: 15px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-    
+    <div class="container">
+        <h1>🌱 Dali Dream Garden</h1>
+        
+        <div class="input-section">
+            <div class="input-group">
+                <label for="objectId">Object ID:</label>
+                <input type="number" id="objectId" min="1" max="30" placeholder="1-30">
+                <button id="submitBtn" onclick="addObject()">Add Object</button>
+            </div>
+            <small>Enter an object ID (1-30) to add to the garden</small>
+        </div>
+        
+        <div id="resultSection" class="result-section hidden">
+            <div id="message"></div>
+            <div id="gardenState" class="garden-state hidden">
+                <h4>Current Garden State:</h4>
+                <div id="gardenContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function addObject() {
+            const objectId = document.getElementById('objectId').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const resultSection = document.getElementById('resultSection');
+            const message = document.getElementById('message');
+            const gardenState = document.getElementById('gardenState');
+            const gardenContent = document.getElementById('gardenContent');
+            
+            // Validate input
+            if (!objectId || objectId < 1 || objectId > 30) {
+                showResult('Please enter a valid object ID (1-30)', 'error');
+                return;
+            }
+            
+            // Disable button during request
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Adding...';
+            
+            try {
+                const response = await fetch(`/add/${objectId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult(data.message, 'success');
+                    displayGardenState(data.gardenState);
+                    displayObjectChanges(data.removedObject, data.addedObject);
+                } else {
+                    showResult(data.message, 'error');
+                    gardenState.classList.add('hidden');
+                }
+                
+            } catch (error) {
+                showResult('Error connecting to server: ' + error.message, 'error');
+                gardenState.classList.add('hidden');
+            } finally {
+                // Re-enable button
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Object';
+            }
+        }
+        
+        function showResult(msg, type) {
+            const resultSection = document.getElementById('resultSection');
+            const message = document.getElementById('message');
+            
+            message.textContent = msg;
+            resultSection.className = `result-section ${type}`;
+            resultSection.classList.remove('hidden');
+        }
+        
+        function displayGardenState(state) {
+            const gardenState = document.getElementById('gardenState');
+            const gardenContent = document.getElementById('gardenContent');
+            
+            const objectsInfo = state.objects.map((objId, index) => 
+                `Object ${objId} → ${state.locations[index]}`
+            ).join('<br>');
+            
+            gardenContent.innerHTML = `
+                <strong>Objects:</strong> [${state.objects.join(', ')}] (${state.objects.length}/22)<br>
+                <strong>Locations:</strong> [${state.locations.join(', ')}]<br>
+                <strong>Adding Order:</strong> [${state.addingOrder.join(', ')}] (oldest → newest)<br><br>
+                <strong>Placements:</strong><br>
+                ${objectsInfo || 'No objects in garden'}
+            `;
+            
+            gardenState.classList.remove('hidden');
+        }
+        
+        function displayObjectChanges(removedObject, addedObject) {
+            const gardenContent = document.getElementById('gardenContent');
+            let changesHtml = '<br><strong>Changes:</strong><br>';
+            
+            if (removedObject) {
+                let removeReason = '';
+                let removeColor = '#dc3545;'; // default red
+                if (removedObject.reason === 'duplicate') {
+                    removeReason = ' (duplicate)';
+                } else if (removedObject.reason === 'oldest') {
+                    removeReason = ' (oldest in garden)';
+                } else if (removedObject.reason === 'forced_displacement') {
+                    removeReason = ' (forcibly displaced)';
+                    removeColor = '#ff6b35;'; // orange for forced displacement
+                }
+                changesHtml += `<span style="color: ${removeColor}">➖ Removed: Object ${removedObject.id} (${removedObject.name}) from ${removedObject.location}${removeReason}</span><br>`;
+            }
+            
+            if (addedObject) {
+                changesHtml += `<span style="color: #28a745;">➕ Added: Object ${addedObject.id} (${addedObject.name}) to ${addedObject.location}</span><br>`;
+            }
+            
+            gardenContent.innerHTML += changesHtml;
+        }
+        
+        // Allow Enter key to submit
+        document.getElementById('objectId').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                addObject();
+            }
+        });
+    </script>
 </body>
 </html>
