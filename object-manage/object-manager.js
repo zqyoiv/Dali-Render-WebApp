@@ -1,4 +1,5 @@
 const { LocationData, ObjectLocationData } = require('./object-location-data');
+const { sendObjectEvent, getLocationTypeFromId } = require('./osc-sender');
 
 let GardenData = {
     objects: [], // max 22 object ids, for example: ["1", "2"]
@@ -39,6 +40,10 @@ function addObject(objectId) {
         if (orderIndex !== -1) {
             GardenData.addingOrder.splice(orderIndex, 1);
         }
+        
+        // Send OSC message for removal
+        const locationType = getLocationTypeFromId(removedObject.location);
+        sendObjectEvent(objId, removedObject.location, locationType, false);
     }
     
     // Get all possible locations for this object
@@ -88,6 +93,10 @@ function addObject(objectId) {
             if (orderIndex !== -1) {
                 GardenData.addingOrder.splice(orderIndex, 1);
             }
+            
+            // Send OSC message for forced displacement removal
+            const locationType = getLocationTypeFromId(forcedLocation);
+            sendObjectEvent(displacedObjectId, forcedLocation, locationType, false);
         }
         
         // Use the forced location
@@ -114,6 +123,10 @@ function addObject(objectId) {
             GardenData.objects.splice(oldestIndex, 1);
             GardenData.locations.splice(oldestIndex, 1);
             GardenData.addingOrder.shift(); // remove first (oldest) item
+            
+            // Send OSC message for oldest removal
+            const locationType = getLocationTypeFromId(removedObject.location);
+            sendObjectEvent(oldestObjectId, removedObject.location, locationType, false);
         }
     }
     
@@ -126,6 +139,10 @@ function addObject(objectId) {
     GardenData.locations.push(selectedLocation);
     // Add to adding order (newest at the end)
     GardenData.addingOrder.push(objId);
+    
+    // Send OSC message for addition
+    const addLocationType = getLocationTypeFromId(selectedLocation);
+    sendObjectEvent(objId, selectedLocation, addLocationType, true);
     
     // Create added object info
     const addedObject = {
