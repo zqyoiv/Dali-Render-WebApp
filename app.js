@@ -10,6 +10,52 @@ const PORT = process.env.PORT || 4000;
 const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
 let relaySocket = null;
 
+// Helper function to process add object logic and generate response
+function processAddObject(objectId, source = 'unknown') {
+    try {
+        console.log(`Processing add object command for ID: ${objectId} from ${source}`);
+        const result = addObject(objectId);
+        
+        if (result.success) {
+            let message = '';
+            if (result.removedObject) {
+                if (result.removedObject.reason === 'duplicate') {
+                    message = `Removed duplicate object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+                } else if (result.removedObject.reason === 'oldest') {
+                    message = `Garden full! Removed oldest object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+                } else if (result.removedObject.reason === 'forced_displacement') {
+                    message = `No available locations! Forcibly displaced object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+                }
+            } else {
+                message = `Added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+            }
+            
+            console.log(`✅ ${message}`);
+            
+            return {
+                success: true,
+                message: message,
+                removedObject: result.removedObject,
+                addedObject: result.addedObject,
+                gardenState: result.gardenState
+            };
+        } else {
+            console.log(`❌ Failed to add object: ${result.message}`);
+            return {
+                success: false,
+                message: result.message
+            };
+        }
+    } catch (error) {
+        const errorMessage = `Error handling add object command: ${error.message}`;
+        console.error(`❌ ${errorMessage}`);
+        return {
+            success: false,
+            message: errorMessage
+        };
+    }
+}
+
 // Function to establish WebSocket connection to relay
 function connectToRelay() {
     if (relaySocket) {
@@ -108,41 +154,17 @@ function connectToRelay() {
     });
 }
 
-// Function to handle add object command (same logic as POST route)
+// Function to handle add object command from relay
 function handleAddObject(objectId) {
-    try {
-        console.log(`Processing add object command for ID: ${objectId}`);
-        const result = addObject(objectId);
-        
-        if (result.success) {
-            let message = '';
-            if (result.removedObject) {
-                if (result.removedObject.reason === 'duplicate') {
-                    message = `Removed duplicate object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-                } else if (result.removedObject.reason === 'oldest') {
-                    message = `Garden full! Removed oldest object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-                } else if (result.removedObject.reason === 'forced_displacement') {
-                    message = `No available locations! Forcibly displaced object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-                }
-            } else {
-                message = `Added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-            }
-            
-            console.log(`✅ ${message}`);
-            
-            // Optionally send response back to relay
-            if (relaySocket && relaySocket.connected) {
-                const response = {
-                    text: `Response: ${message}`,
-                    timestamp: Date.now()
-                };
-                relaySocket.emit("msg", response);
-            }
-        } else {
-            console.log(`❌ Failed to add object: ${result.message}`);
-        }
-    } catch (error) {
-        console.error('❌ Error handling add object command:', error.message);
+    const result = processAddObject(objectId, 'WebSocket Relay');
+    
+    // Optionally send response back to relay
+    if (result.success && relaySocket && relaySocket.connected) {
+        const response = {
+            text: `Response: ${result.message}`,
+            timestamp: Date.now()
+        };
+        relaySocket.emit("msg", response);
     }
 }
 
@@ -174,42 +196,13 @@ app.get('/garden-state', (req, res) => {
 
 // POST route for adding objects
 app.post('/add/:number', (req, res) => {
-    try {
-        const objectId = req.params.number;
-        const result = addObject(objectId);
-        
-        if (result.success) {
-            let message = '';
-            if (result.removedObject) {
-                if (result.removedObject.reason === 'duplicate') {
-                    message = `Removed duplicate object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-                } else if (result.removedObject.reason === 'oldest') {
-                    message = `Garden full! Removed oldest object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-                } else if (result.removedObject.reason === 'forced_displacement') {
-                    message = `No available locations! Forcibly displaced object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-                }
-            } else {
-                message = `Added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
-            }
-            
-            res.json({
-                success: true,
-                message: message,
-                removedObject: result.removedObject,
-                addedObject: result.addedObject,
-                gardenState: result.gardenState
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: result.message
-            });
-        }
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error: ' + error.message
-        });
+    const objectId = req.params.number;
+    const result = processAddObject(objectId, 'HTTP POST');
+    
+    if (result.success) {
+        res.json(result);
+    } else {
+        res.status(400).json(result);
     }
 });
 
