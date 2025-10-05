@@ -10,10 +10,23 @@ const PORT = process.env.PORT || 4000;
 const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
 let relaySocket = null;
 
+// Global variables to store extracted data
+let lastObjectId = null;
+let lastSessionId = null;
+
+// Helper function to get stored values
+function getLastExtractedData() {
+    return {
+        objectId: lastObjectId,
+        sessionId: lastSessionId
+    };
+}
+
 // Helper function to process add object logic and generate response
-function processAddObject(objectId, source = 'unknown') {
+function processAddObject(objectId, source = 'unknown', sessionId = null) {
     try {
-        console.log(`Processing add object command for ID: ${objectId} from ${source}`);
+        const sessionInfo = sessionId ? ` (session: ${sessionId})` : '';
+        console.log(`Processing add object command for ID: ${objectId} from ${source}${sessionInfo}`);
         const result = addObject(objectId);
         
         if (result.success) {
@@ -111,13 +124,21 @@ function connectToRelay() {
         
         if (messageText) {
             console.log(`🔍 Checking message text: "${messageText}"`);
-            const addMatch = messageText.match(/^\/?add\/(\d+)$/);
+            const addMatch = messageText.match(/^\/?add\/(\d+)\/session\/(.+)$/);
             if (addMatch) {
                 const objectId = addMatch[1];
-                console.log(`🎯 Detected add/${objectId} command from relay`);
-                handleAddObject(objectId);
+                const sessionId = addMatch[2];
+                
+                // Store extracted values in global variables
+                lastObjectId = objectId;
+                lastSessionId = sessionId;
+                
+                console.log(`🎯 Detected add/${objectId}/session/${sessionId} command from relay`);
+                console.log(`📝 Stored objectId: ${lastObjectId}, sessionId: ${lastSessionId}`);
+                
+                handleAddObject(objectId, sessionId);
             } else {
-                console.log(`❌ Message text "${messageText}" does not match add/[integer] pattern`);
+                console.log(`❌ Message text "${messageText}" does not match add/[integer]/session/[sessionId] pattern`);
             }
         } else {
             console.log(`❌ Could not extract text from message:`, message);
@@ -155,14 +176,16 @@ function connectToRelay() {
 }
 
 // Function to handle add object command from relay
-function handleAddObject(objectId) {
-    const result = processAddObject(objectId, 'WebSocket Relay');
+function handleAddObject(objectId, sessionId = null) {
+    const result = processAddObject(objectId, 'WebSocket Relay', sessionId);
     
     // Optionally send response back to relay
     if (result.success && relaySocket && relaySocket.connected) {
         const response = {
             text: `Response: ${result.message}`,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            objectId: objectId,
+            sessionId: sessionId
         };
         relaySocket.emit("msg", response);
     }
@@ -190,6 +213,22 @@ app.get('/garden-state', (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error fetching garden state: ' + error.message
+        });
+    }
+});
+
+// GET route for last extracted data (objectId and sessionId)
+app.get('/last-data', (req, res) => {
+    try {
+        const data = getLastExtractedData();
+        res.json({
+            success: true,
+            data: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching last data: ' + error.message
         });
     }
 });
