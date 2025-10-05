@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Client Test</title>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Client Test</h1>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div>
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            <button id="sendMsgBtn" onclick="sendMessage()" disabled>Send Message</button>
+            <button id="clearBtn" onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div>
+            <input type="text" id="messageInput" placeholder="Enter message text" value="ping-from-webapp2">
+        </div>
+        
+        <h3>Connection Log:</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+        
+        function connect() {
+            if (socket) {
+                log("Already connected or connecting...");
+                return;
+            }
+            
+            log(`Connecting to: ${RELAY_URL}`);
+            updateStatus("Connecting...", "connecting");
+            
+            socket = io(RELAY_URL, {
+                transports: ["websocket"],
+                reconnection: true,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: Infinity,
+                timeout: 10000
+            });
+            
+            // Connection events
+            socket.on('connect', () => {
+                log('✅ Connected to relay');
+                updateStatus("Connected", "connected");
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('sendMsgBtn').disabled = false;
+                
+                // Send handshake
+                const handshake = {
+                    from: "webapp2",
+                    ts: Date.now()
+                };
+                log(`📤 Sending handshake: ${JSON.stringify(handshake)}`);
+                socket.emit("hello", handshake);
+            });
+            
+            socket.on('welcome', (payload) => {
+                log(`🎉 Welcome received: ${JSON.stringify(payload)}`);
+            });
+            
+            socket.on('msg', (message) => {
+                log(`📨 Relay broadcast: ${JSON.stringify(message)}`);
+            });
+            
+            socket.on('connect_error', (error) => {
+                log(`❌ Connection error: ${error.message}`);
+                updateStatus("Connection Error", "disconnected");
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log(`⚠️ Disconnected: ${reason}`);
+                updateStatus("Disconnected", "disconnected");
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('sendMsgBtn').disabled = true;
+            });
+            
+            socket.on('reconnect', (attemptNumber) => {
+                log(`🔄 Reconnected after ${attemptNumber} attempts`);
+                updateStatus("Reconnected", "connected");
+            });
+            
+            socket.on('reconnect_attempt', (attemptNumber) => {
+                log(`🔄 Reconnection attempt ${attemptNumber}`);
+            });
+            
+            socket.on('reconnect_error', (error) => {
+                log(`❌ Reconnection error: ${error.message}`);
+            });
+            
+            socket.on('reconnect_failed', () => {
+                log(`❌ Reconnection failed after all attempts`);
+                updateStatus("Reconnection Failed", "disconnected");
+            });
+        }
+        
+        function disconnect() {
+            if (socket) {
+                log("Disconnecting...");
+                socket.disconnect();
+                socket = null;
+                updateStatus("Disconnected", "disconnected");
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('sendMsgBtn').disabled = true;
+            }
+        }
+        
+        function sendMessage() {
+            if (!socket || !socket.connected) {
+                log("Not connected to server");
+                return;
+            }
+            
+            const messageText = document.getElementById('messageInput').value;
+            if (!messageText.trim()) {
+                log("Please enter a message");
+                return;
+            }
+            
+            const message = {
+                text: messageText
+            };
+            
+            log(`📤 Sending message: ${JSON.stringify(message)}`);
+            socket.emit("msg", message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            log("Page loaded. Click 'Connect' to start.");
+        });
+    </script>
+</body>
+</html>
+

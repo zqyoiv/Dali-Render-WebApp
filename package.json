@@ -5,11 +5,13 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "node app.js"
+    "dev": "node app.js",
+    "client": "node websocket-client.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "osc": "^2.4.4"
+    "osc": "^2.4.4",
+    "socket.io-client": "^4.7.4"
   },
   "keywords": ["express", "nodejs", "webapp"],
   "author": "",
