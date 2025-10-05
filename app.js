@@ -1,9 +1,150 @@
 const express = require('express');
 const path = require('path');
 const { addObject } = require('./object-manage/object-manager');
+const { io } = require('socket.io-client');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// WebSocket configuration
+const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
+let relaySocket = null;
+
+// Function to establish WebSocket connection to relay
+function connectToRelay() {
+    if (relaySocket) {
+        console.log("Already connected to relay");
+        return;
+    }
+    
+    console.log(`Connecting to relay: ${RELAY_URL}`);
+    
+    relaySocket = io(RELAY_URL, {
+        transports: ["websocket"],
+        reconnection: true,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: Infinity,
+        timeout: 10000
+    });
+    
+    // Connection event handlers
+    relaySocket.on('connect', () => {
+        console.log('✅ Connected to relay');
+        
+        // Send handshake
+        const handshake = {
+            from: "webapp2-server",
+            ts: Date.now()
+        };
+        
+        console.log('📤 Sending handshake:', handshake);
+        relaySocket.emit("hello", handshake);
+    });
+    
+    // Listen for welcome response
+    relaySocket.on("welcome", (payload) => {
+        console.log("🎉 Welcome received:", payload);
+    });
+    
+    // Listen for message broadcasts and handle add/[integer] messages
+    relaySocket.on("msg", (message) => {
+        console.log("📨 Relay broadcast:", JSON.stringify(message, null, 2));
+        
+        // Check multiple possible message formats
+        let messageText = null;
+        
+        if (message && message.text) {
+            messageText = message.text;
+        } else if (message && typeof message === 'string') {
+            messageText = message;
+        } else if (message && message.message) {
+            messageText = message.message;
+        } else if (message && message.data) {
+            messageText = message.data;
+        }
+        
+        if (messageText) {
+            console.log(`🔍 Checking message text: "${messageText}"`);
+            const addMatch = messageText.match(/^\/?add\/(\d+)$/);
+            if (addMatch) {
+                const objectId = addMatch[1];
+                console.log(`🎯 Detected add/${objectId} command from relay`);
+                handleAddObject(objectId);
+            } else {
+                console.log(`❌ Message text "${messageText}" does not match add/[integer] pattern`);
+            }
+        } else {
+            console.log(`❌ Could not extract text from message:`, message);
+        }
+    });
+    
+    // Error handling
+    relaySocket.on('connect_error', (error) => {
+        console.error('❌ Relay connection error:', error.message);
+    });
+    
+    relaySocket.on('disconnect', (reason) => {
+        console.warn('⚠️ Disconnected from relay:', reason);
+        if (reason === 'io server disconnect') {
+            console.log('🔄 Relay server disconnected client, attempting manual reconnection...');
+            relaySocket.connect();
+        }
+    });
+    
+    relaySocket.on('reconnect', (attemptNumber) => {
+        console.log(`🔄 Reconnected to relay after ${attemptNumber} attempts`);
+    });
+    
+    relaySocket.on('reconnect_attempt', (attemptNumber) => {
+        console.log(`🔄 Relay reconnection attempt ${attemptNumber}`);
+    });
+    
+    relaySocket.on('reconnect_error', (error) => {
+        console.error('❌ Relay reconnection error:', error.message);
+    });
+    
+    relaySocket.on('reconnect_failed', () => {
+        console.error('❌ Relay reconnection failed after all attempts');
+    });
+}
+
+// Function to handle add object command (same logic as POST route)
+function handleAddObject(objectId) {
+    try {
+        console.log(`Processing add object command for ID: ${objectId}`);
+        const result = addObject(objectId);
+        
+        if (result.success) {
+            let message = '';
+            if (result.removedObject) {
+                if (result.removedObject.reason === 'duplicate') {
+                    message = `Removed duplicate object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+                } else if (result.removedObject.reason === 'oldest') {
+                    message = `Garden full! Removed oldest object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+                } else if (result.removedObject.reason === 'forced_displacement') {
+                    message = `No available locations! Forcibly displaced object ${result.removedObject.id} (${result.removedObject.name}) from ${result.removedObject.location}, then added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+                }
+            } else {
+                message = `Added object ${result.addedObject.id} (${result.addedObject.name}) at ${result.addedObject.location}`;
+            }
+            
+            console.log(`✅ ${message}`);
+            
+            // Optionally send response back to relay
+            if (relaySocket && relaySocket.connected) {
+                const response = {
+                    text: `Response: ${message}`,
+                    timestamp: Date.now()
+                };
+                relaySocket.emit("msg", response);
+            }
+        } else {
+            console.log(`❌ Failed to add object: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('❌ Error handling add object command:', error.message);
+    }
+}
 
 // Middleware
 app.use(express.json());
@@ -12,6 +153,23 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Route for root path
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// GET route for current garden state
+app.get('/garden-state', (req, res) => {
+    try {
+        const { getGardenState } = require('./object-manage/object-manager');
+        const gardenState = getGardenState();
+        res.json({
+            success: true,
+            gardenState: gardenState
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching garden state: ' + error.message
+        });
+    }
 });
 
 // POST route for adding objects
@@ -58,4 +216,24 @@ app.post('/add/:number', (req, res) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    
+    // Establish WebSocket connection to relay
+    connectToRelay();
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down server...');
+    if (relaySocket) {
+        relaySocket.disconnect();
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Shutting down server...');
+    if (relaySocket) {
+        relaySocket.disconnect();
+    }
+    process.exit(0);
 });
