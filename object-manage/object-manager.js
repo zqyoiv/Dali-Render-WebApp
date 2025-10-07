@@ -173,6 +173,52 @@ function getGardenState() {
     };
 }
 
+function removeObject(objectId) {
+    // Convert objectId to string for consistency
+    const objId = objectId.toString();
+    
+    // Find object in garden
+    const objectIndex = GardenData.objects.indexOf(objId);
+    
+    if (objectIndex === -1) {
+        return {
+            success: false,
+            message: `Object ${objId} not found in garden`
+        };
+    }
+    
+    // Get object data and location
+    const location = GardenData.locations[objectIndex];
+    const objectData = ObjectLocationData[objId];
+    
+    // Remove from garden state
+    GardenData.objects.splice(objectIndex, 1);
+    GardenData.locations.splice(objectIndex, 1);
+    
+    // Remove from adding order
+    const orderIndex = GardenData.addingOrder.indexOf(objId);
+    if (orderIndex !== -1) {
+        GardenData.addingOrder.splice(orderIndex, 1);
+    }
+    
+    // Send OSC message for removal
+    const locationType = getLocationTypeFromId(location);
+    sendObjectEvent(objId, location, locationType, false);
+    
+    console.log(`🗑️ Removed object ${objId} from garden at location ${location}`);
+    
+    return {
+        success: true,
+        message: `Object ${objId} removed from garden at location ${location}`,
+        removedObject: {
+            id: objId,
+            name: objectData ? objectData.name : 'Unknown',
+            location: location
+        },
+        gardenState: getGardenState()
+    };
+}
+
 function clearGarden() {
     GardenData.objects = [];
     GardenData.locations = [];
@@ -182,6 +228,7 @@ function clearGarden() {
 
 module.exports = {
     addObject,
+    removeObject,
     getGardenState,
     clearGarden
 };

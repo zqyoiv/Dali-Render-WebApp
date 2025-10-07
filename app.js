@@ -7,7 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // WebSocket configuration
-const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
+// const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
+const RELAY_URL = "wss://dali-react-garden.onrender.com/";
 let relaySocket = null;
 
 // Global variables to store extracted data
@@ -124,6 +125,8 @@ function connectToRelay() {
         
         if (messageText) {
             console.log(`🔍 Checking message text: "${messageText}"`);
+            
+            // Check for add pattern
             const addMatch = messageText.match(/^\/?add\/(\d+)\/session\/(.+)$/);
             if (addMatch) {
                 const objectId = addMatch[1];
@@ -137,8 +140,17 @@ function connectToRelay() {
                 console.log(`📝 Stored objectId: ${lastObjectId}, sessionId: ${lastSessionId}`);
                 
                 handleAddObject(objectId, sessionId);
-            } else {
-                console.log(`❌ Message text "${messageText}" does not match add/[integer]/session/[sessionId] pattern`);
+            }
+            // Check for check-garden pattern
+            else if (messageText.match(/^\/?check-garden\/(\d+)$/)) {
+                const checkMatch = messageText.match(/^\/?check-garden\/(\d+)$/);
+                const objectId = checkMatch[1];
+                
+                console.log(`🔍 Detected check-garden/${objectId} command from relay`);
+                handleCheckGarden(objectId);
+            }
+            else {
+                console.log(`❌ Message text "${messageText}" does not match any known pattern`);
             }
         } else {
             console.log(`❌ Could not extract text from message:`, message);
@@ -188,6 +200,45 @@ function handleAddObject(objectId, sessionId = null) {
             sessionId: sessionId
         };
         relaySocket.emit("msg", response);
+    }
+}
+
+// Function to handle check-garden command from relay
+function handleCheckGarden(objectId) {
+    try {
+        console.log(`🔍 Checking if object ${objectId} exists in garden`);
+        
+        // Use the removeObject function from object manager
+        const { removeObject } = require('./object-manage/object-manager');
+        const result = removeObject(objectId);
+        
+        if (result.success) {
+            console.log(`✅ ${result.message}`);
+        } else {
+            console.log(`ℹ️ ${result.message}`);
+        }
+        
+        // Send simple acknowledgment back to relay
+        if (relaySocket && relaySocket.connected) {
+            const response = {
+                text: `ACK: check-garden/${objectId}`,
+                timestamp: Date.now(),
+                objectId: objectId
+            };
+            relaySocket.emit("msg", response);
+        }
+    } catch (error) {
+        console.error(`❌ Error checking garden for object ${objectId}:`, error.message);
+        
+        // Send simple acknowledgment even on error
+        if (relaySocket && relaySocket.connected) {
+            const response = {
+                text: `ACK: check-garden/${objectId}`,
+                timestamp: Date.now(),
+                objectId: objectId
+            };
+            relaySocket.emit("msg", response);
+        }
     }
 }
 
