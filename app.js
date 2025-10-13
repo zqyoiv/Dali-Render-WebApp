@@ -189,7 +189,12 @@ function connectToRelay() {
 
 // Function to handle add object command from relay
 function handleAddObject(objectId, sessionId = null) {
+    console.log(`\n🌐 WebSocket command received - Adding object ${objectId} to SINGLETON garden state`);
     const result = processAddObject(objectId, 'WebSocket Relay', sessionId);
+    
+    if (result.success && result.gardenState) {
+        console.log(`   ✅ State updated - Version: ${result.gardenState.stateVersion}, Total objects: ${result.gardenState.objects.length}/22`);
+    }
     
     // Optionally send response back to relay
     if (result.success && relaySocket && relaySocket.connected) {
@@ -287,12 +292,116 @@ app.get('/last-data', (req, res) => {
 // POST route for adding objects
 app.post('/add/:number', (req, res) => {
     const objectId = req.params.number;
+    console.log(`\n🌐 HTTP POST - Adding object ${objectId} to SINGLETON garden state`);
     const result = processAddObject(objectId, 'HTTP POST');
+    
+    if (result.success && result.gardenState) {
+        console.log(`   ✅ State updated - Version: ${result.gardenState.stateVersion}, Total objects: ${result.gardenState.objects.length}/22`);
+    }
     
     if (result.success) {
         res.json(result);
     } else {
         res.status(400).json(result);
+    }
+});
+
+// POST route to clear the garden
+app.post('/clear-garden', (req, res) => {
+    try {
+        console.log('\n🧹 Clearing garden...');
+        const { clearGarden } = require('./object-manage/object-manager');
+        const clearedState = clearGarden();
+        
+        console.log('✅ Garden cleared successfully\n');
+        
+        res.json({
+            success: true,
+            message: 'Garden cleared successfully',
+            gardenState: clearedState
+        });
+    } catch (error) {
+        const errorMessage = `Error clearing garden: ${error.message}`;
+        console.error(`❌ ${errorMessage}`);
+        res.status(500).json({
+            success: false,
+            message: errorMessage
+        });
+    }
+});
+
+// POST route for batch adding objects (set entire garden)
+app.post('/set-garden', (req, res) => {
+    try {
+        const { clearFirst, objectIds } = req.body;
+        
+        // Validate input
+        if (!Array.isArray(objectIds)) {
+            return res.status(400).json({
+                success: false,
+                message: 'objectIds must be an array'
+            });
+        }
+        
+        if (objectIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'objectIds array cannot be empty'
+            });
+        }
+        
+        if (objectIds.length > 22) {
+            return res.status(400).json({
+                success: false,
+                message: `objectIds array cannot contain more than 22 objects (received ${objectIds.length})`
+            });
+        }
+        
+        console.log(`\n🌱 Setting entire garden with ${objectIds.length} objects...`);
+        console.log(`   Object IDs: [${objectIds.join(', ')}]`);
+        console.log(`   Clear first: ${clearFirst}`);
+        
+        if (clearFirst) {
+            console.log(`   🔄 REPLACING entire garden state - all previous changes will be removed`);
+        } else {
+            console.log(`   ➕ ADDING to existing garden state - cumulative with previous changes`);
+        }
+        
+        // Use batch add function (processes all objects and returns OSC array)
+        const { addObjectsBatch } = require('./object-manage/object-manager');
+        const batchResult = addObjectsBatch(objectIds, clearFirst);
+        
+        // Send single OSC message with array of all objects
+        const { sendObjectArrayEvent } = require('./object-manage/osc-sender');
+        const oscResult = sendObjectArrayEvent(batchResult.oscArray);
+        
+        const message = `Garden setup complete: ${batchResult.summary.successful} objects added successfully, ${batchResult.summary.failed} failed`;
+        console.log(`\n✅ ${message}`);
+        console.log(`   📊 Final State - Version: ${batchResult.gardenState.stateVersion}, Total objects: ${batchResult.gardenState.objects.length}/22\n`);
+        
+        res.json({
+            success: true,
+            message: message,
+            summary: batchResult.summary,
+            addedObjects: batchResult.addedObjects,
+            removedObjects: batchResult.removedObjects,
+            results: batchResult.results,
+            gardenState: batchResult.gardenState,
+            oscData: {
+                sent: oscResult.success,
+                address: oscResult.oscAddress,
+                count: oscResult.count,
+                array: oscResult.array
+            }
+        });
+        
+    } catch (error) {
+        const errorMessage = `Error setting garden: ${error.message}`;
+        console.error(`❌ ${errorMessage}`);
+        res.status(500).json({
+            success: false,
+            message: errorMessage
+        });
     }
 });
 

@@ -63,6 +63,87 @@ function sendObjectEvent(objectId, locationId, locationType, isAdd) {
 }
 
 /**
+ * Send OSC message with array of objects (for batch operations)
+ * @param {Array} objectsArray - Array of objects with structure: 
+ *   [{ objectId, locationId, locationType, isAdd }, ...]
+ * @returns {Object} - The array data that was sent
+ */
+function sendObjectArrayEvent(objectsArray) {
+    try {
+        if (!Array.isArray(objectsArray) || objectsArray.length === 0) {
+            console.log('⚠️ No objects to send via OSC');
+            return { success: false, array: [] };
+        }
+
+        // Build OSC message with array of objects
+        // Format: /garden/objects [count] [obj1_id, obj1_loc, obj1_type, obj1_action, obj2_id, obj2_loc, ...]
+        const args = [
+            {
+                type: "i", // integer - number of objects
+                value: objectsArray.length
+            }
+        ];
+
+        // Add each object's data to the args array
+        objectsArray.forEach(obj => {
+            args.push(
+                {
+                    type: "i", // integer - object ID
+                    value: parseInt(obj.objectId)
+                },
+                {
+                    type: "s", // string - location ID
+                    value: obj.locationId
+                },
+                {
+                    type: "s", // string - location type
+                    value: obj.locationType
+                },
+                {
+                    type: "i", // integer - action (1=add, 0=remove)
+                    value: obj.isAdd ? 1 : 0
+                }
+            );
+        });
+
+        const message = {
+            address: "/garden/objects", // Note: plural "objects" for batch
+            args: args
+        };
+
+        oscPort.send(message);
+
+        // Create a readable array for logging
+        const readableArray = objectsArray.map(obj => ({
+            objectId: obj.objectId,
+            location: obj.locationId,
+            locationType: obj.locationType,
+            action: obj.isAdd ? 'ADD' : 'REMOVE'
+        }));
+
+        console.log(`\n📤 OSC ARRAY SENT to /garden/objects:`);
+        console.log(`   Count: ${objectsArray.length} objects`);
+        console.log(`   Data:`, JSON.stringify(readableArray, null, 2));
+        console.log(`   Raw OSC Args Count: ${args.length} (1 count + ${objectsArray.length * 4} object params)\n`);
+
+        return {
+            success: true,
+            array: readableArray,
+            count: objectsArray.length,
+            oscAddress: "/garden/objects"
+        };
+
+    } catch (error) {
+        console.error("❌ Error sending OSC array message:", error.message);
+        return {
+            success: false,
+            error: error.message,
+            array: []
+        };
+    }
+}
+
+/**
  * Extract location type from location ID
  * @param {string} locationId - Location ID like "M1", "RM2", etc.
  * @returns {string} - Location type like "M", "RM", etc.
@@ -75,5 +156,6 @@ function getLocationTypeFromId(locationId) {
 
 module.exports = {
     sendObjectEvent,
+    sendObjectArrayEvent,
     getLocationTypeFromId
 };
