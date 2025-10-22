@@ -39,6 +39,28 @@ const ObjectLocationData = {
   "30": { name: "PianoWater", location: ["M", "B"] }
 }
 
+/**
+ * PRIORITIZED POSITION MAP
+ * Maps specific object IDs to preferred location types (M, B, etc.)
+ * Objects in this map will prioritize locations of the specified type
+ * before falling back to their normal valid locations
+ */
+const PrioritizedPositionMap = {
+    "3": "M",
+    "4": "M", 
+    "5": "M",
+    "7": "M",
+    "11": "M",
+    "12": "M",
+    "13": "M",
+    "15": "M",
+    "18": "M",
+    "19": "B",
+    "23": "M",
+    "26": "M",
+    "28": "M"
+};
+
 const ExampleGardenData = {
   objects: ["1", "2"], // max 22 object ids
   locations: ["M1", "RC1"], // max 22 location ids
@@ -47,5 +69,6 @@ const ExampleGardenData = {
 module.exports = {
   LocationData,
   ObjectLocationData,
+  PrioritizedPositionMap,
   ExampleGardenData
 };

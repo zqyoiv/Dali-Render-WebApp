@@ -1,8 +1,92 @@
-const { LocationData, ObjectLocationData } = require('./object-location-data');
+const { LocationData, ObjectLocationData, PrioritizedPositionMap } = require('./object-location-data');
 const { sendObjectEvent, getLocationTypeFromId } = require('./osc-sender');
 
 /**
+ * DALI DREAM GARDEN - OBJECT MANAGER
+ * 
+ * This module manages the placement and removal of objects in the Dali Dream Garden.
+ * It implements a sophisticated priority-based placement system with forced displacement
+ * capabilities to maintain garden capacity limits.
+ * 
+ * ================================================================================
+ * ADD OBJECT LOGIC - STEP BY STEP PROCESS
+ * ================================================================================
+ * 
+ * When adding a new object to the garden, the system follows this detailed process:
+ * 
+ * 1. VALIDATION PHASE
+ *    - Convert objectId to string for consistency
+ *    - Check if object exists in ObjectLocationData database
+ *    - Return error if object not found
+ * 
+ * 2. DUPLICATE HANDLING PHASE
+ *    - Check if object already exists in garden
+ *    - If duplicate found:
+ *      * Store info about removed object (reason: 'duplicate')
+ *      * Remove existing object and its location from garden state
+ *      * Remove from adding order tracking
+ *      * Send OSC removal message for the duplicate
+ * 
+ * 3. LOCATION ANALYSIS PHASE
+ *    - Get valid location types for the object from ObjectLocationData
+ *    - Check PrioritizedPositionMap for priority location type
+ *    - Split locations into:
+ *      * Prioritized locations (e.g., M1-M6 for M-prioritized objects)
+ *      * Fallback locations (other valid locations like B, RM, RC, H)
+ *    - Filter out already occupied locations from both lists
+ * 
+ * 4. AVAILABILITY CHECK PHASE
+ *    - Combine available prioritized and fallback locations
+ *    - If NO locations available → proceed to FORCED DISPLACEMENT
+ *    - If locations available → proceed to NORMAL PLACEMENT
+ * 
+ * 5A. FORCED DISPLACEMENT PHASE (when no locations available)
+ *     - Prioritize displacing from occupied prioritized locations first
+ *     - If no prioritized locations occupied → displace from any location
+ *     - Find object currently at the target location
+ *     - Store displacement info (reason: 'forced_displacement')
+ *     - Remove displaced object from garden state
+ *     - Send OSC removal message for displaced object
+ *     - Add target location to available locations
+ * 
+ * 5B. CAPACITY MANAGEMENT PHASE (garden at max 22 objects)
+ *     - If garden is full and no duplicate was removed:
+ *       * Find oldest object (first in addingOrder array)
+ *       * Store removal info (reason: 'oldest')
+ *       * Remove oldest object from garden state
+ *       * Send OSC removal message for oldest object
+ * 
+ * 6. LOCATION SELECTION PHASE
+ *    - If prioritized locations available → randomly select from prioritized
+ *    - If no prioritized locations → randomly select from fallback locations
+ *    - Log selection type (prioritized vs fallback)
+ * 
+ * 7. PLACEMENT PHASE
+ *    - Add object and selected location to garden state
+ *    - Add object to adding order (newest at end)
+ *    - Send OSC addition message
+ *    - Update state metadata (version, timestamp)
+ * 
+ * 8. RESPONSE PHASE
+ *    - Return success response with:
+ *      * Added object info (id, name, location)
+ *      * Removed object info (if any)
+ *      * Complete garden state snapshot
+ * 
+ * ================================================================================
+ * KEY FEATURES
+ * ================================================================================
+ * 
+ * - PRIORITY SYSTEM: Objects in PrioritizedPositionMap prefer specific location types
+ * - SMART DISPLACEMENT: Prioritizes removing objects from priority locations first
+ * - CAPACITY MANAGEMENT: Maintains max 22 objects by removing oldest when full
+ * - DUPLICATE HANDLING: Automatically removes duplicates before adding new instance
+ * - STATE CONSISTENCY: Single source of truth for garden state across all operations
+ * - OSC INTEGRATION: Sends real-time messages to Unreal Engine for visual updates
+ * 
+ * ================================================================================
  * SINGLETON GARDEN STATE
+ * ================================================================================
  * This is the single source of truth for the garden state across the entire application.
  * All operations (batch, single, WebSocket) modify this same state.
  * This ensures consistency with Unreal Engine regardless of how objects are added.
@@ -22,6 +106,48 @@ function updateStateMetadata() {
     GardenData.stateVersion++;
     GardenData.lastModified = Date.now();
     console.log(`🔄 Garden State Updated - Version: ${GardenData.stateVersion}, Objects: ${GardenData.objects.length}/22`);
+}
+
+/**
+ * Get prioritized locations for an object based on the prioritized position map
+ * @param {string} objectId - The object ID to get prioritized locations for
+ * @param {Array} validLocationTypes - Array of valid location types for this object
+ * @returns {Array} Array of prioritized locations
+ */
+function getPrioritizedLocations(objectId, validLocationTypes) {
+    let prioritizedLocations = [];
+    let fallbackLocations = [];
+    
+    // Check if this object has a prioritized location type
+    const prioritizedType = PrioritizedPositionMap[objectId];
+    
+    if (prioritizedType) {
+        console.log(`🎯 Object ${objectId} has prioritized location type: ${prioritizedType}`);
+        
+        // Get locations of the prioritized type
+        if (LocationData[prioritizedType]) {
+            prioritizedLocations = LocationData[prioritizedType];
+        }
+        
+        // Get fallback locations from valid location types (excluding prioritized type)
+        validLocationTypes.forEach(locationType => {
+            if (locationType !== prioritizedType && LocationData[locationType]) {
+                fallbackLocations = fallbackLocations.concat(LocationData[locationType]);
+            }
+        });
+    } else {
+        // No prioritization - use all valid location types
+        validLocationTypes.forEach(locationType => {
+            if (LocationData[locationType]) {
+                fallbackLocations = fallbackLocations.concat(LocationData[locationType]);
+            }
+        });
+    }
+    
+    return {
+        prioritized: prioritizedLocations,
+        fallback: fallbackLocations
+    };
 }
 
 function addObject(objectId) {
@@ -63,28 +189,48 @@ function addObject(objectId) {
         sendObjectEvent(objId, removedObject.location, locationType, false);
     }
     
-    // Get all possible locations for this object
+    // Get prioritized locations for this object
     const validLocationTypes = objectData.location;
-    let possibleLocations = [];
+    const { prioritized: prioritizedLocations, fallback: fallbackLocations } = getPrioritizedLocations(objId, validLocationTypes);
     
-    // Build list of all possible specific locations
-    validLocationTypes.forEach(locationType => {
-        if (LocationData[locationType]) {
-            possibleLocations = possibleLocations.concat(LocationData[locationType]);
-        }
-    });
-    
-    // Remove already occupied locations
-    const availableLocations = possibleLocations.filter(location => 
+    // Remove already occupied locations from prioritized locations first
+    const availablePrioritizedLocations = prioritizedLocations.filter(location => 
         !GardenData.locations.includes(location)
     );
+    
+    // Remove already occupied locations from fallback locations
+    const availableFallbackLocations = fallbackLocations.filter(location => 
+        !GardenData.locations.includes(location)
+    );
+    
+    // Combine prioritized and fallback locations (prioritized first)
+    const availableLocations = [...availablePrioritizedLocations, ...availableFallbackLocations];
+    
+    // For forced placement, we need all possible locations
+    const allPossibleLocations = [...prioritizedLocations, ...fallbackLocations];
     
     // Check if there are any available locations
     if (availableLocations.length === 0) {
         // No available locations - force placement by removing an existing object
-        // Randomly select from all possible locations for this object
-        const randomLocationIndex = Math.floor(Math.random() * possibleLocations.length);
-        const forcedLocation = possibleLocations[randomLocationIndex];
+        // Prioritize displacing from prioritized locations first, then fallback locations
+        let forcedLocation;
+        
+        // First, try to find occupied prioritized locations
+        const occupiedPrioritizedLocations = prioritizedLocations.filter(location => 
+            GardenData.locations.includes(location)
+        );
+        
+        if (occupiedPrioritizedLocations.length > 0) {
+            // Randomly select from occupied prioritized locations
+            const randomIndex = Math.floor(Math.random() * occupiedPrioritizedLocations.length);
+            forcedLocation = occupiedPrioritizedLocations[randomIndex];
+            console.log(`🎯 Forced displacement: targeting prioritized location ${forcedLocation} for object ${objId}`);
+        } else {
+            // No prioritized locations occupied, randomly select from all possible locations
+            const randomLocationIndex = Math.floor(Math.random() * allPossibleLocations.length);
+            forcedLocation = allPossibleLocations[randomLocationIndex];
+            console.log(`📍 Forced displacement: targeting fallback location ${forcedLocation} for object ${objId}`);
+        }
         
         // Find what object is currently at this location
         const occupiedIndex = GardenData.locations.indexOf(forcedLocation);
@@ -147,9 +293,19 @@ function addObject(objectId) {
         }
     }
     
-    // Randomly select a location from available locations
-    const randomIndex = Math.floor(Math.random() * availableLocations.length);
-    const selectedLocation = availableLocations[randomIndex];
+    // Select location with priority: prefer prioritized locations if available
+    let selectedLocation;
+    if (availablePrioritizedLocations.length > 0) {
+        // Randomly select from prioritized locations
+        const randomIndex = Math.floor(Math.random() * availablePrioritizedLocations.length);
+        selectedLocation = availablePrioritizedLocations[randomIndex];
+        console.log(`🎯 Selected prioritized location ${selectedLocation} for object ${objId}`);
+    } else {
+        // Fall back to any available location
+        const randomIndex = Math.floor(Math.random() * availableLocations.length);
+        selectedLocation = availableLocations[randomIndex];
+        console.log(`📍 Selected fallback location ${selectedLocation} for object ${objId}`);
+    }
     
     // Add object and location to garden state
     GardenData.objects.push(objId);
@@ -365,26 +521,47 @@ function addObjectsBatch(objectIds, clearFirst = false) {
             }
         }
         
-        // Get valid locations for this object
+        // Get prioritized locations for this object
         const validLocationTypes = objectData.location;
-        let possibleLocations = [];
+        const { prioritized: prioritizedLocations, fallback: fallbackLocations } = getPrioritizedLocations(objId, validLocationTypes);
         
-        validLocationTypes.forEach(locationType => {
-            if (LocationData[locationType]) {
-                possibleLocations = possibleLocations.concat(LocationData[locationType]);
-            }
-        });
-        
-        // Remove already occupied locations
-        const availableLocations = possibleLocations.filter(location => 
+        // Remove already occupied locations from prioritized locations first
+        const availablePrioritizedLocations = prioritizedLocations.filter(location => 
             !GardenData.locations.includes(location)
         );
         
+        // Remove already occupied locations from fallback locations
+        const availableFallbackLocations = fallbackLocations.filter(location => 
+            !GardenData.locations.includes(location)
+        );
+        
+        // Combine prioritized and fallback locations (prioritized first)
+        const availableLocations = [...availablePrioritizedLocations, ...availableFallbackLocations];
+        
+        // For forced placement, we need all possible locations
+        const allPossibleLocations = [...prioritizedLocations, ...fallbackLocations];
+        
         // Check if locations available
         if (availableLocations.length === 0) {
-            // Force placement
-            const randomLocationIndex = Math.floor(Math.random() * possibleLocations.length);
-            const forcedLocation = possibleLocations[randomLocationIndex];
+            // Force placement - prioritize displacing from prioritized locations first
+            let forcedLocation;
+            
+            // First, try to find occupied prioritized locations
+            const occupiedPrioritizedLocations = prioritizedLocations.filter(location => 
+                GardenData.locations.includes(location)
+            );
+            
+            if (occupiedPrioritizedLocations.length > 0) {
+                // Randomly select from occupied prioritized locations
+                const randomIndex = Math.floor(Math.random() * occupiedPrioritizedLocations.length);
+                forcedLocation = occupiedPrioritizedLocations[randomIndex];
+                console.log(`🎯 Batch forced displacement: targeting prioritized location ${forcedLocation} for object ${objId}`);
+            } else {
+                // No prioritized locations occupied, randomly select from all possible locations
+                const randomLocationIndex = Math.floor(Math.random() * allPossibleLocations.length);
+                forcedLocation = allPossibleLocations[randomLocationIndex];
+                console.log(`📍 Batch forced displacement: targeting fallback location ${forcedLocation} for object ${objId}`);
+            }
             
             const occupiedIndex = GardenData.locations.indexOf(forcedLocation);
             if (occupiedIndex !== -1) {
@@ -449,9 +626,19 @@ function addObjectsBatch(objectIds, clearFirst = false) {
             }
         }
         
-        // Select random available location
-        const randomIndex = Math.floor(Math.random() * availableLocations.length);
-        const selectedLocation = availableLocations[randomIndex];
+        // Select location with priority: prefer prioritized locations if available
+        let selectedLocation;
+        if (availablePrioritizedLocations.length > 0) {
+            // Randomly select from prioritized locations
+            const randomIndex = Math.floor(Math.random() * availablePrioritizedLocations.length);
+            selectedLocation = availablePrioritizedLocations[randomIndex];
+            console.log(`🎯 Batch: Selected prioritized location ${selectedLocation} for object ${objId}`);
+        } else {
+            // Fall back to any available location
+            const randomIndex = Math.floor(Math.random() * availableLocations.length);
+            selectedLocation = availableLocations[randomIndex];
+            console.log(`📍 Batch: Selected fallback location ${selectedLocation} for object ${objId}`);
+        }
         const selectedLocationType = getLocationTypeFromId(selectedLocation);
         
         // Add to garden
