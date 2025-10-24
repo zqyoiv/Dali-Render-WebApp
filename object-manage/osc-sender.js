@@ -31,31 +31,23 @@ oscPort.on("error", function (error) {
  */
 function sendObjectEvent(objectId, locationId, locationType, isAdd) {
     try {
+        // Create a single string with format: "objectId:locationId:locationType:action"
+        // Example: "15:M1:N:1" (where 1 = add, 0 = remove)
+        const dataString = `${objectId}:${locationId}:${locationType}:${isAdd ? 1 : 0}`;
+        
         const message = {
             address: "/garden/object",
             args: [
                 {
-                    type: "i", // integer
-                    value: parseInt(objectId)
-                },
-                {
                     type: "s", // string
-                    value: locationId
-                },
-                {
-                    type: "s", // string
-                    value: locationType
-                },
-                {
-                    type: "i", // integer (1 for add, 0 for remove)
-                    value: isAdd ? 1 : 0
+                    value: dataString
                 }
             ]
         };
 
         oscPort.send(message);
         
-        console.log(`OSC sent: Object ${objectId} ${isAdd ? 'ADD' : 'REMOVE'} at ${locationId} (${locationType})`);
+        console.log(`OSC sent: "${dataString}" (Object ${objectId} ${isAdd ? 'ADD' : 'REMOVE'} at ${locationId} ${locationType})`);
         
     } catch (error) {
         console.error("Error sending OSC message:", error.message);
@@ -75,35 +67,18 @@ function sendObjectArrayEvent(objectsArray) {
             return { success: false, array: [] };
         }
 
-        // Build OSC message with array of objects
-        // Format: /garden/objects [count] [obj1_id, obj1_loc, obj1_type, obj1_action, obj2_id, obj2_loc, ...]
-        const args = [
-            {
-                type: "i", // integer - number of objects
-                value: objectsArray.length
-            }
-        ];
+        // Build OSC message with array of strings
+        // Each string has format: "objectId:locationId:locationType:action"
+        // Example: ["15:M1:N:1", "27:B2:B:0", "33:RM1:RM:1"]
+        const args = [];
 
-        // Add each object's data to the args array
+        // Add each object's data as a single string
         objectsArray.forEach(obj => {
-            args.push(
-                {
-                    type: "i", // integer - object ID
-                    value: parseInt(obj.objectId)
-                },
-                {
-                    type: "s", // string - location ID
-                    value: obj.locationId
-                },
-                {
-                    type: "s", // string - location type
-                    value: obj.locationType
-                },
-                {
-                    type: "i", // integer - action (1=add, 0=remove)
-                    value: obj.isAdd ? 1 : 0
-                }
-            );
+            const dataString = `${obj.objectId}:${obj.locationId}:${obj.locationType}:${obj.isAdd ? 1 : 0}`;
+            args.push({
+                type: "s", // string
+                value: dataString
+            });
         });
 
         const message = {
@@ -114,17 +89,21 @@ function sendObjectArrayEvent(objectsArray) {
         oscPort.send(message);
 
         // Create a readable array for logging
-        const readableArray = objectsArray.map(obj => ({
-            objectId: obj.objectId,
-            location: obj.locationId,
-            locationType: obj.locationType,
-            action: obj.isAdd ? 'ADD' : 'REMOVE'
-        }));
+        const readableArray = objectsArray.map(obj => {
+            const dataString = `${obj.objectId}:${obj.locationId}:${obj.locationType}:${obj.isAdd ? 1 : 0}`;
+            return {
+                string: dataString,
+                objectId: obj.objectId,
+                location: obj.locationId,
+                locationType: obj.locationType,
+                action: obj.isAdd ? 'ADD' : 'REMOVE'
+            };
+        });
 
         console.log(`\n📤 OSC ARRAY SENT to /garden/objects:`);
         console.log(`   Count: ${objectsArray.length} objects`);
         console.log(`   Data:`, JSON.stringify(readableArray, null, 2));
-        console.log(`   Raw OSC Args Count: ${args.length} (1 count + ${objectsArray.length * 4} object params)\n`);
+        console.log(`   Raw OSC Args Count: ${args.length} (${objectsArray.length} string params)\n`);
 
         return {
             success: true,
