@@ -357,8 +357,18 @@ app.post('/set-garden', (req, res) => {
             });
         }
         
-        console.log(`\n🌱 Setting entire garden with ${objectIds.length} objects...`);
-        console.log(`   Object IDs: [${objectIds.join(', ')}]`);
+        // Remove duplicates from the input array
+        const uniqueObjectIds = [...new Set(objectIds.map(id => id.toString()))];
+        const duplicatesRemoved = objectIds.length - uniqueObjectIds.length;
+        
+        if (duplicatesRemoved > 0) {
+            console.log(`⚠️ Removed ${duplicatesRemoved} duplicate(s) from input array`);
+            console.log(`   Original: [${objectIds.join(', ')}]`);
+            console.log(`   Cleaned:  [${uniqueObjectIds.join(', ')}]`);
+        }
+        
+        console.log(`\n🌱 Setting entire garden with ${uniqueObjectIds.length} objects...`);
+        console.log(`   Object IDs: [${uniqueObjectIds.join(', ')}]`);
         console.log(`   Clear first: ${clearFirst}`);
         
         if (clearFirst) {
@@ -369,7 +379,7 @@ app.post('/set-garden', (req, res) => {
         
         // Use batch add function (processes all objects and returns OSC array)
         const { addObjectsBatch } = require('./object-manage/object-manager');
-        const batchResult = addObjectsBatch(objectIds, clearFirst);
+        const batchResult = addObjectsBatch(uniqueObjectIds, clearFirst);
         
         // Send single OSC message with array of all objects
         const { sendObjectArrayEvent } = require('./object-manage/osc-sender');
