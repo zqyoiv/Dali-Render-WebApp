@@ -3,7 +3,8 @@ const LocationData = {
   "B": ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10"],
   "RM": ["RM1", "RM2"],
   "RC": ["RC1", "RC2"],
-  "H": ["H1", "H2"],
+  "H1": ["H1"],
+  "H2": ["H2"],
 }
 
 const ObjectLocationData = {
@@ -27,7 +28,7 @@ const ObjectLocationData = {
   "18": { name: "LobsterSaxophone", location: ["M", "RM"] },
   "19": { name: "SpoonChair", location: ["M", "B"] },
   "20": { name: "CupAnt", location: ["M", "RC"] },
-  "21": { name: "EggString", location: ["H"] },
+  "21": { name: "EggString", location: ["H1", "H2"] },
   "22": { name: "EyelashFlower", location: ["M", "RM"] },
   "23": { name: "WheelbarrowClock", location: ["M", "B"] },
   "24": { name: "ElephantLongLeg", location: ["B"] },

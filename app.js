@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 4000;
 
 // WebSocket configuration
 // const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
-const RELAY_URL = "wss://dali-react-garden.onrender.com/";
+const RELAY_URL = "wss://dali-endless-garden.onrender.com/";
 let relaySocket = null;
 
 // Global variables to store extracted data
