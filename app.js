@@ -6,6 +6,9 @@ const { io } = require('socket.io-client');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Garden configuration
+const MAX_GARDEN_OBJECTS = 22;
+
 // WebSocket configuration
 // const RELAY_URL = "wss://two025-dali-garden-webapp.onrender.com";
 const RELAY_URL = "wss://dali-endless-garden.onrender.com/";
@@ -193,7 +196,7 @@ function handleAddObject(objectId, sessionId = null) {
     const result = processAddObject(objectId, 'WebSocket Relay', sessionId);
     
     if (result.success && result.gardenState) {
-        console.log(`   ✅ State updated - Version: ${result.gardenState.stateVersion}, Total objects: ${result.gardenState.objects.length}/22`);
+        console.log(`   ✅ State updated - Version: ${result.gardenState.stateVersion}, Total objects: ${result.gardenState.objects.length}/${MAX_GARDEN_OBJECTS}`);
     }
     
     // Optionally send response back to relay
@@ -296,7 +299,7 @@ app.post('/add/:number', (req, res) => {
     const result = processAddObject(objectId, 'HTTP POST');
     
     if (result.success && result.gardenState) {
-        console.log(`   ✅ State updated - Version: ${result.gardenState.stateVersion}, Total objects: ${result.gardenState.objects.length}/22`);
+        console.log(`   ✅ State updated - Version: ${result.gardenState.stateVersion}, Total objects: ${result.gardenState.objects.length}/${MAX_GARDEN_OBJECTS}`);
     }
     
     if (result.success) {
@@ -350,10 +353,10 @@ app.post('/set-garden', (req, res) => {
             });
         }
         
-        if (objectIds.length > 22) {
+        if (objectIds.length > MAX_GARDEN_OBJECTS) {
             return res.status(400).json({
                 success: false,
-                message: `objectIds array cannot contain more than 22 objects (received ${objectIds.length})`
+                message: `objectIds array cannot contain more than ${MAX_GARDEN_OBJECTS} objects (received ${objectIds.length})`
             });
         }
         
@@ -387,7 +390,7 @@ app.post('/set-garden', (req, res) => {
         
         const message = `Garden setup complete: ${batchResult.summary.successful} objects added successfully, ${batchResult.summary.failed} failed`;
         console.log(`\n✅ ${message}`);
-        console.log(`   📊 Final State - Version: ${batchResult.gardenState.stateVersion}, Total objects: ${batchResult.gardenState.objects.length}/22\n`);
+        console.log(`   📊 Final State - Version: ${batchResult.gardenState.stateVersion}, Total objects: ${batchResult.gardenState.objects.length}/${MAX_GARDEN_OBJECTS}\n`);
         
         res.json({
             success: true,
