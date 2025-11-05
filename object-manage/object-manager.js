@@ -689,10 +689,43 @@ function addObjectsBatch(objectIds, clearFirst = false) {
     };
 }
 
+/**
+ * Initialize garden on startup: clear via OSC and add 12 default objects
+ * This ensures the garden starts with a known state
+ */
+function initializeGarden() {
+    console.log(`\n🌱 Initializing garden on startup...`);
+    
+    // Clear the garden (sends OSC removal messages for any existing objects)
+    clearGarden();
+    
+    // Add 6 default objects: lobster telephone, palm butterfly, bread head, egg eye, thumb, face drawer
+    const defaultObjects = ["18", "1", "3", "16", "15", "4"]; // LobsterSaxophone, HandButterfly, BreadHead, EggEye, ThumbClock, HeadDrawer
+    console.log(`   Adding ${defaultObjects.length} default objects...`);
+    
+    // Use existing batch add function (don't clear again, we already did)
+    const batchResult = addObjectsBatch(defaultObjects, false);
+    
+    // Send OSC array message for all added objects
+    const { sendObjectArrayEvent } = require('./osc-sender');
+    const oscResult = sendObjectArrayEvent(batchResult.oscArray);
+    
+    console.log(`✅ Garden initialized with ${batchResult.summary.successful} objects`);
+    console.log(`   Final State - Version: ${batchResult.gardenState.stateVersion}, Objects: ${batchResult.gardenState.objects.length}/22\n`);
+    
+    return {
+        success: true,
+        message: `Garden initialized with ${batchResult.summary.successful} objects`,
+        gardenState: batchResult.gardenState,
+        oscSent: oscResult.success
+    };
+}
+
 module.exports = {
     addObject,
     removeObject,
     getGardenState,
     clearGarden,
-    addObjectsBatch
+    addObjectsBatch,
+    initializeGarden
 };

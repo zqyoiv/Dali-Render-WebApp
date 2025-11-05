@@ -422,6 +422,10 @@ app.post('/set-garden', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     
+    // Initialize garden: clear via OSC and add 12 default objects
+    const { initializeGarden } = require('./object-manage/object-manager');
+    initializeGarden();
+    
     // Establish WebSocket connection to relay
     connectToRelay();
 });
