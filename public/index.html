@@ -322,6 +322,16 @@
                 });
             }
             
+            // Display timestamps if available
+            let timestampsHtml = '';
+            if (data.gardenState.objectTimestamps && Object.keys(data.gardenState.objectTimestamps).length > 0) {
+                timestampsHtml = '<br><strong>Object Timestamps:</strong><br>';
+                for (const [objId, timestamp] of Object.entries(data.gardenState.objectTimestamps)) {
+                    const date = new Date(timestamp);
+                    timestampsHtml += `<small>Object ${objId}: ${date.toLocaleTimeString()}</small><br>`;
+                }
+            }
+            
             gardenContent.innerHTML = `
                 <strong>Final Garden State:</strong><br>
                 <strong>Objects:</strong> [${data.gardenState.objects.join(', ')}] (${data.gardenState.objects.length}/22)<br>
@@ -329,6 +339,7 @@
                 <strong>Adding Order:</strong> [${data.gardenState.addingOrder.join(', ')}] (oldest → newest)<br><br>
                 <strong>Placements:</strong><br>
                 ${objectsInfo || 'No objects in garden'}
+                ${timestampsHtml}
                 ${changesHtml}
             `;
             
@@ -384,6 +395,9 @@
                     showResult(data.message, 'success');
                     displayGardenState(data.gardenState);
                     displayObjectChanges(data.removedObject, data.addedObject);
+                    
+                    // Update the garden monitor to keep it in sync
+                    setTimeout(() => updateGardenState(), 500);
                 } else {
                     showResult(data.message, 'error');
                     gardenState.classList.add('hidden');
@@ -422,6 +436,16 @@
                     <strong>State Version:</strong> ${state.stateVersion} | <strong>Last Modified:</strong> ${lastModifiedDate}
                 </div>` : '';
             
+            // Display timestamps if available
+            let timestampsHtml = '';
+            if (state.objectTimestamps && Object.keys(state.objectTimestamps).length > 0) {
+                timestampsHtml = '<br><strong>Object Timestamps:</strong><br>';
+                for (const [objId, timestamp] of Object.entries(state.objectTimestamps)) {
+                    const date = new Date(timestamp);
+                    timestampsHtml += `<small>Object ${objId}: ${date.toLocaleTimeString()}</small><br>`;
+                }
+            }
+            
             gardenContent.innerHTML = `
                 ${stateInfo}
                 <strong>Objects:</strong> [${state.objects.join(', ')}] (${state.objects.length}/22)<br>
@@ -429,6 +453,7 @@
                 <strong>Adding Order:</strong> [${state.addingOrder.join(', ')}] (oldest → newest)<br><br>
                 <strong>Placements:</strong><br>
                 ${objectsInfo || 'No objects in garden'}
+                ${timestampsHtml}
             `;
             
             gardenState.classList.remove('hidden');
@@ -532,8 +557,8 @@
                 if (data.success) {
                     showResult(data.message, 'success');
                     
-                    // Update both garden displays
-                    updateGardenState();
+                    // Update the garden monitor to keep it in sync
+                    setTimeout(() => updateGardenState(), 500);
                     
                     const gardenState = document.getElementById('gardenState');
                     gardenState.classList.add('hidden');
@@ -591,6 +616,16 @@
             
             const lastModifiedDate = state.lastModified ? new Date(state.lastModified).toLocaleString() : 'Unknown';
             
+            // Display timestamps if available
+            let timestampsHtml = '';
+            if (state.objectTimestamps && Object.keys(state.objectTimestamps).length > 0) {
+                timestampsHtml = '<br><strong>Object Timestamps:</strong><br>';
+                for (const [objId, timestamp] of Object.entries(state.objectTimestamps)) {
+                    const date = new Date(timestamp);
+                    timestampsHtml += `<small>Object ${objId}: ${date.toLocaleTimeString()}</small><br>`;
+                }
+            }
+            
             gardenContent.innerHTML = `
                 <div style="background: #fff3cd; padding: 8px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #ffc107;">
                     <strong>🔒 Singleton Garden State</strong><br>
@@ -601,6 +636,7 @@
                 <strong>Adding Order:</strong> [${state.addingOrder.join(', ')}] (oldest → newest)<br><br>
                 <strong>Placements:</strong><br>
                 ${objectsInfo || 'No objects in garden'}
+                ${timestampsHtml}
             `;
         }
         
