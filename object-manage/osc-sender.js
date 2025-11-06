@@ -124,11 +124,21 @@ function sendObjectArrayEvent(objectsArray) {
 
 /**
  * Extract location type from location ID
- * @param {string} locationId - Location ID like "M1", "RM2", etc.
- * @returns {string} - Location type like "M", "RM", etc.
+ * @param {string} locationId - Location ID like "M1", "RM2", "H1", etc.
+ * @returns {string} - Location type like "M", "RM", "H1", "H2", etc.
  */
 function getLocationTypeFromId(locationId) {
-    // Extract alphabetic prefix (e.g., "M1" -> "M", "RM2" -> "RM")
+    // Import LocationData to look up the location type
+    const { LocationData } = require('./object-location-data');
+    
+    // Check each location type to see if this locationId belongs to it
+    for (const [locationType, locationIds] of Object.entries(LocationData)) {
+        if (locationIds.includes(locationId)) {
+            return locationType;
+        }
+    }
+    
+    // Fallback: extract alphabetic prefix (for backward compatibility)
     const match = locationId.match(/^([A-Z]+)/);
     return match ? match[1] : locationId;
 }
