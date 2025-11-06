@@ -333,6 +333,39 @@ app.post('/clear-garden', (req, res) => {
     }
 });
 
+// POST route to manually trigger cleanup of oldest half of objects
+app.post('/cleanup-oldest', (req, res) => {
+    try {
+        console.log('\n🗑️ Manually triggering cleanup of oldest objects...');
+        const { removeOldestHalf } = require('./object-manage/object-manager');
+        const result = removeOldestHalf();
+        
+        if (result && result.success) {
+            console.log(`✅ Cleanup complete: Removed ${result.removedCount} objects\n`);
+            res.json({
+                success: true,
+                message: `Removed ${result.removedCount} oldest objects`,
+                removedCount: result.removedCount,
+                removedObjects: result.removedObjects,
+                gardenState: result.gardenState
+            });
+        } else {
+            console.log('ℹ️ No objects to remove\n');
+            res.json({
+                success: true,
+                message: 'No objects to remove or insufficient objects'
+            });
+        }
+    } catch (error) {
+        const errorMessage = `Error during cleanup: ${error.message}`;
+        console.error(`❌ ${errorMessage}`);
+        res.status(500).json({
+            success: false,
+            message: errorMessage
+        });
+    }
+});
+
 // POST route for batch adding objects (set entire garden)
 app.post('/set-garden', (req, res) => {
     try {

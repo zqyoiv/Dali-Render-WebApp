@@ -95,9 +95,16 @@ let GardenData = {
     objects: [], // max 22 object ids, for example: ["1", "2"]
     locations: [], // max 22 location ids, for example: ["M1", "RC1"]
     addingOrder: [], // tracks the order objects were added, oldest first
+    objectTimestamps: {}, // tracks creation timestamp for each object: {objectId: timestamp}
     stateVersion: 0, // increments with each state change (for tracking)
     lastModified: Date.now() // timestamp of last modification
 };
+
+/**
+ * Inactivity timer for auto-cleanup
+ */
+let inactivityTimer = null;
+const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 /**
  * Update state metadata after any modification
@@ -106,6 +113,96 @@ function updateStateMetadata() {
     GardenData.stateVersion++;
     GardenData.lastModified = Date.now();
     console.log(`🔄 Garden State Updated - Version: ${GardenData.stateVersion}, Objects: ${GardenData.objects.length}/22`);
+    
+    // Reset inactivity timer
+    resetInactivityTimer();
+}
+
+/**
+ * Reset the inactivity timer - called whenever there's activity
+ */
+function resetInactivityTimer() {
+    // Clear existing timer
+    if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+    }
+    
+    // Set new timer - only if we have objects in the garden
+    if (GardenData.objects.length > 0) {
+        inactivityTimer = setTimeout(() => {
+            console.log(`⏰ 5 minutes of inactivity detected - triggering auto-cleanup`);
+            removeOldestHalf();
+        }, INACTIVITY_TIMEOUT);
+    }
+}
+
+/**
+ * Remove the oldest half of objects from the garden
+ */
+function removeOldestHalf() {
+    if (GardenData.objects.length === 0) {
+        console.log(`🤷 No objects to remove`);
+        return;
+    }
+    
+    // Calculate how many to remove (half, rounded down)
+    const countToRemove = Math.floor(GardenData.objects.length / 2);
+    
+    if (countToRemove === 0) {
+        console.log(`🤷 Only ${GardenData.objects.length} object(s) in garden - not removing any`);
+        return;
+    }
+    
+    console.log(`🗑️ Auto-cleanup: Removing oldest ${countToRemove} of ${GardenData.objects.length} objects`);
+    
+    // Get the oldest objects from addingOrder
+    const objectsToRemove = GardenData.addingOrder.slice(0, countToRemove);
+    
+    // Remove each object
+    const removedObjects = [];
+    for (const objId of objectsToRemove) {
+        const objectIndex = GardenData.objects.indexOf(objId);
+        if (objectIndex !== -1) {
+            const location = GardenData.locations[objectIndex];
+            const objectData = ObjectLocationData[objId];
+            const timestamp = GardenData.objectTimestamps[objId];
+            
+            // Send OSC removal message
+            const locationType = getLocationTypeFromId(location);
+            sendObjectEvent(objId, location, locationType, false);
+            
+            removedObjects.push({
+                id: objId,
+                name: objectData ? objectData.name : 'Unknown',
+                location: location,
+                timestamp: timestamp,
+                reason: 'auto_cleanup_inactivity'
+            });
+            
+            // Remove from arrays
+            GardenData.objects.splice(objectIndex, 1);
+            GardenData.locations.splice(objectIndex, 1);
+            
+            // Remove timestamp
+            delete GardenData.objectTimestamps[objId];
+        }
+    }
+    
+    // Remove from addingOrder
+    GardenData.addingOrder = GardenData.addingOrder.slice(countToRemove);
+    
+    // Update state metadata (this will NOT restart the timer since we're in cleanup)
+    GardenData.stateVersion++;
+    GardenData.lastModified = Date.now();
+    console.log(`✅ Auto-cleanup complete: Removed ${removedObjects.length} objects. Garden now has ${GardenData.objects.length} objects`);
+    
+    // Don't restart the timer after auto-cleanup - let it naturally restart on next activity
+    return {
+        success: true,
+        removedCount: removedObjects.length,
+        removedObjects: removedObjects,
+        gardenState: getGardenState()
+    };
 }
 
 /**
@@ -183,6 +280,8 @@ function addObject(objectId) {
         if (orderIndex !== -1) {
             GardenData.addingOrder.splice(orderIndex, 1);
         }
+        // Remove timestamp
+        delete GardenData.objectTimestamps[objId];
         
         // Send OSC message for removal
         const locationType = getLocationTypeFromId(removedObject.location);
@@ -256,6 +355,8 @@ function addObject(objectId) {
             if (orderIndex !== -1) {
                 GardenData.addingOrder.splice(orderIndex, 1);
             }
+            // Remove timestamp
+            delete GardenData.objectTimestamps[displacedObjectId];
             
             // Send OSC message for forced displacement removal
             const locationType = getLocationTypeFromId(forcedLocation);
@@ -286,6 +387,8 @@ function addObject(objectId) {
             GardenData.objects.splice(oldestIndex, 1);
             GardenData.locations.splice(oldestIndex, 1);
             GardenData.addingOrder.shift(); // remove first (oldest) item
+            // Remove timestamp
+            delete GardenData.objectTimestamps[oldestObjectId];
             
             // Send OSC message for oldest removal
             const locationType = getLocationTypeFromId(removedObject.location);
@@ -312,6 +415,8 @@ function addObject(objectId) {
     GardenData.locations.push(selectedLocation);
     // Add to adding order (newest at the end)
     GardenData.addingOrder.push(objId);
+    // Track creation timestamp
+    GardenData.objectTimestamps[objId] = Date.now();
     
     // Send OSC message for addition
     const addLocationType = getLocationTypeFromId(selectedLocation);
@@ -348,6 +453,7 @@ function getGardenState() {
         objects: [...GardenData.objects],
         locations: [...GardenData.locations],
         addingOrder: [...GardenData.addingOrder],
+        objectTimestamps: { ...GardenData.objectTimestamps },
         stateVersion: GardenData.stateVersion,
         lastModified: GardenData.lastModified
     };
@@ -380,6 +486,9 @@ function removeObject(objectId) {
     if (orderIndex !== -1) {
         GardenData.addingOrder.splice(orderIndex, 1);
     }
+    
+    // Remove timestamp
+    delete GardenData.objectTimestamps[objId];
     
     // Send OSC message for removal
     const locationType = getLocationTypeFromId(location);
@@ -419,6 +528,7 @@ function clearGarden() {
     GardenData.objects = [];
     GardenData.locations = [];
     GardenData.addingOrder = [];
+    GardenData.objectTimestamps = {};
     
     // Update state metadata
     updateStateMetadata();
@@ -472,6 +582,7 @@ function addObjectsBatch(objectIds, clearFirst = false) {
         GardenData.objects = [];
         GardenData.locations = [];
         GardenData.addingOrder = [];
+        GardenData.objectTimestamps = {};
     }
     
     // Process each object ID
@@ -519,6 +630,8 @@ function addObjectsBatch(objectIds, clearFirst = false) {
             if (orderIndex !== -1) {
                 GardenData.addingOrder.splice(orderIndex, 1);
             }
+            // Remove timestamp
+            delete GardenData.objectTimestamps[objId];
         }
         
         // Get prioritized locations for this object
@@ -590,6 +703,8 @@ function addObjectsBatch(objectIds, clearFirst = false) {
                 if (orderIndex !== -1) {
                     GardenData.addingOrder.splice(orderIndex, 1);
                 }
+                // Remove timestamp
+                delete GardenData.objectTimestamps[displacedObjectId];
             }
             
             availableLocations.push(forcedLocation);
@@ -623,6 +738,8 @@ function addObjectsBatch(objectIds, clearFirst = false) {
                 GardenData.objects.splice(oldestIndex, 1);
                 GardenData.locations.splice(oldestIndex, 1);
                 GardenData.addingOrder.shift();
+                // Remove timestamp
+                delete GardenData.objectTimestamps[oldestObjectId];
             }
         }
         
@@ -645,6 +762,8 @@ function addObjectsBatch(objectIds, clearFirst = false) {
         GardenData.objects.push(objId);
         GardenData.locations.push(selectedLocation);
         GardenData.addingOrder.push(objId);
+        // Track creation timestamp
+        GardenData.objectTimestamps[objId] = Date.now();
         
         // Add to OSC array
         oscArray.push({
@@ -727,5 +846,6 @@ module.exports = {
     getGardenState,
     clearGarden,
     addObjectsBatch,
-    initializeGarden
+    initializeGarden,
+    removeOldestHalf
 };
