@@ -23,27 +23,55 @@ GardenData.objectTimestamps = {
 - Timestamps are automatically removed when objects are removed
 - Timestamps are included in all garden state responses via `getGardenState()`
 
-### 2. Auto-Cleanup (Inactivity Timer)
+### 2. Auto-Initialize After Inactivity
 
 **Behavior:**
-- A 5-minute inactivity timer starts/resets whenever objects are added or removed
-- If no activity occurs for 5 minutes, the system automatically removes the **oldest half** of objects
-- The timer is automatically cancelled if the garden becomes empty
-- The timer does NOT restart after auto-cleanup (waits for next manual activity)
+- A 5-minute inactivity timer **always runs**, even when the garden is empty
+- If no activity occurs for 5 minutes, the system automatically **reinitializes the garden**
+- Reinitialization clears all objects and adds the **6 default objects** (same as startup)
+- The timer does NOT restart after auto-initialization (waits for next manual activity)
+- **Protection rule:** Gardens with 1-6 objects are protected from auto-initialization
+- **Empty gardens (0 objects) and gardens with 7+ objects will auto-initialize**
+
+**Default Objects Added:**
+- Object 18: LobsterSaxophone
+- Object 1: HandButterfly
+- Object 3: BreadHead
+- Object 16: EggEye
+- Object 15: ThumbClock
+- Object 4: HeadDrawer
 
 **Example:**
 ```
-Garden has 10 objects → No activity for 5 minutes → Auto-removes 5 oldest objects
-Garden has 7 objects → No activity for 5 minutes → Auto-removes 3 oldest objects
-Garden has 3 objects → No activity for 5 minutes → Auto-removes 1 oldest object
-Garden has 1 object → No activity for 5 minutes → No removal (needs at least 2)
+Garden has 10 objects → No activity for 5 minutes → Clears all, adds 6 default objects ✅
+Garden has 7 objects → No activity for 5 minutes → Clears all, adds 6 default objects ✅
+Garden has 6 objects → No activity for 5 minutes → No change (1-6 protected) 🛡️
+Garden has 3 objects → No activity for 5 minutes → No change (1-6 protected) 🛡️
+Garden has 0 objects (empty) → No activity for 5 minutes → Adds 6 default objects ✅
 ```
 
 **Console Output:**
 ```
-⏰ 5 minutes of inactivity detected - triggering auto-cleanup
-🗑️ Auto-cleanup: Removing oldest 5 of 10 objects
-✅ Auto-cleanup complete: Removed 5 objects. Garden now has 5 objects
+⏰ 5 minutes of inactivity detected - triggering garden initialization
+🔄 Auto-initialization triggered: Resetting garden to default state
+🧹 Cleared X objects from garden
+📦 Batch operation complete: 6 added, 0 failed
+✅ Auto-initialization complete: Garden reset to 6 default objects
+```
+
+**If empty garden:**
+```
+⏰ 5 minutes of inactivity detected - triggering garden initialization
+🔄 Auto-initialization triggered: Garden is empty, adding default objects
+🌱 Initializing garden on startup...
+   Adding 6 default objects...
+✅ Auto-initialization complete: Garden reset to 6 default objects
+```
+
+**If 1-6 objects (protected):**
+```
+⏰ 5 minutes of inactivity detected - triggering garden initialization
+🛡️ Auto-initialization skipped: Only 3 objects in garden (1-6 objects are protected)
 ```
 
 ## API Changes
@@ -73,8 +101,27 @@ Now includes `objectTimestamps` in the response:
 
 ### New Endpoints
 
+#### POST `/init-garden`
+Manually trigger garden initialization (same as startup):
+
+```bash
+curl -X POST http://localhost:4000/init-garden
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Garden initialized with 6 objects",
+  "gardenState": {
+    // ... updated garden state with 6 default objects
+  },
+  "oscSent": true
+}
+```
+
 #### POST `/cleanup-oldest`
-Manually trigger removal of the oldest half of objects:
+Manually trigger removal of the oldest half of objects (does NOT reinitialize):
 
 ```bash
 curl -X POST http://localhost:4000/cleanup-oldest
@@ -92,7 +139,7 @@ curl -X POST http://localhost:4000/cleanup-oldest
       "name": "HandButterfly",
       "location": "M1",
       "timestamp": 1699234567890,
-      "reason": "auto_cleanup_inactivity"
+      "reason": "manual_cleanup"
     },
     // ... more removed objects
   ],
@@ -126,8 +173,8 @@ Objects can be removed for various reasons, tracked in `removedObject.reason`:
 - `duplicate` - Same object added twice
 - `oldest` - Removed due to garden capacity (22 objects max)
 - `forced_displacement` - No available locations, displaced existing object
-- `cleared` - Manual garden clear
-- `auto_cleanup_inactivity` - **NEW** - Removed by auto-cleanup timer
+- `cleared` - Manual garden clear via `/clear-garden` endpoint
+- `manual_cleanup` - Manual cleanup via `/cleanup-oldest` endpoint
 
 ## Module Exports
 
@@ -148,12 +195,12 @@ const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // milliseconds
 
 ## Testing
 
-### Test Auto-Cleanup
+### Test Auto-Initialize
 
-1. Add objects to the garden
+1. Add 7+ objects to the garden
 2. Wait 5 minutes without any activity
-3. Check console logs for auto-cleanup messages
-4. Verify half of the objects were removed
+3. Check console logs for auto-initialization messages
+4. Verify garden was reset to 6 default objects
 
 ### Test Manual Cleanup
 
@@ -175,9 +222,13 @@ curl http://localhost:4000/garden-state
 
 ## Notes
 
-- Auto-cleanup only removes objects, never adds them
+- Auto-initialization clears ALL objects and adds 6 defaults (resets to startup state)
+- The timer **always runs**, even when the garden is empty (0 objects)
+- Gardens with 1-6 objects are **protected** from auto-initialization
+- Empty gardens (0 objects) will auto-initialize after 5 minutes
+- Gardens with 7+ objects will auto-initialize after 5 minutes
+- Manual cleanup endpoint (`/cleanup-oldest`) removes half without reinitializing
 - Timestamps are stored in milliseconds (Unix epoch time)
 - The timer is server-side only (not synchronized across multiple instances)
 - Timestamps survive garden operations but are cleared on garden clear
-- The inactivity timer respects the `addingOrder` array to determine "oldest"
 

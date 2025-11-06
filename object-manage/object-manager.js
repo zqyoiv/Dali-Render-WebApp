@@ -127,17 +127,44 @@ function resetInactivityTimer() {
         clearTimeout(inactivityTimer);
     }
     
-    // Set new timer - only if we have objects in the garden
-    if (GardenData.objects.length > 0) {
-        inactivityTimer = setTimeout(() => {
-            console.log(`⏰ 5 minutes of inactivity detected - triggering auto-cleanup`);
-            removeOldestHalf();
-        }, INACTIVITY_TIMEOUT);
-    }
+    // Always set new timer, even if garden is empty
+    inactivityTimer = setTimeout(() => {
+        console.log(`⏰ 5 minutes of inactivity detected - triggering garden initialization`);
+        autoInitializeGarden();
+    }, INACTIVITY_TIMEOUT);
 }
 
 /**
- * Remove the oldest half of objects from the garden
+ * Auto-initialize garden after inactivity timeout
+ * Called automatically after 5 minutes of no activity
+ */
+function autoInitializeGarden() {
+    // Protect gardens with 1-6 objects (but allow 0 or 7+ to reinitialize)
+    if (GardenData.objects.length > 0 && GardenData.objects.length < 7) {
+        console.log(`🛡️ Auto-initialization skipped: Only ${GardenData.objects.length} objects in garden (1-6 objects are protected)`);
+        return;
+    }
+    
+    if (GardenData.objects.length === 0) {
+        console.log(`🔄 Auto-initialization triggered: Garden is empty, adding default objects`);
+    } else {
+        console.log(`🔄 Auto-initialization triggered: Resetting garden to default state`);
+    }
+    
+    // Call the standard initialize garden function
+    // This will clear everything and add the 6 default objects
+    const result = initializeGarden();
+    
+    if (result.success) {
+        console.log(`✅ Auto-initialization complete: Garden reset to ${result.gardenState.objects.length} default objects`);
+    }
+    
+    // Don't restart the timer after auto-init - let it naturally restart on next activity
+    return result;
+}
+
+/**
+ * Remove the oldest half of objects from the garden (manual cleanup)
  */
 function removeOldestHalf() {
     if (GardenData.objects.length === 0) {
@@ -153,7 +180,7 @@ function removeOldestHalf() {
         return;
     }
     
-    console.log(`🗑️ Auto-cleanup: Removing oldest ${countToRemove} of ${GardenData.objects.length} objects`);
+    console.log(`🗑️ Manual cleanup: Removing oldest ${countToRemove} of ${GardenData.objects.length} objects`);
     
     // Get the oldest objects from addingOrder
     const objectsToRemove = GardenData.addingOrder.slice(0, countToRemove);
@@ -176,7 +203,7 @@ function removeOldestHalf() {
                 name: objectData ? objectData.name : 'Unknown',
                 location: location,
                 timestamp: timestamp,
-                reason: 'auto_cleanup_inactivity'
+                reason: 'manual_cleanup'
             });
             
             // Remove from arrays
@@ -194,9 +221,9 @@ function removeOldestHalf() {
     // Update state metadata (this will NOT restart the timer since we're in cleanup)
     GardenData.stateVersion++;
     GardenData.lastModified = Date.now();
-    console.log(`✅ Auto-cleanup complete: Removed ${removedObjects.length} objects. Garden now has ${GardenData.objects.length} objects`);
+    console.log(`✅ Manual cleanup complete: Removed ${removedObjects.length} objects. Garden now has ${GardenData.objects.length} objects`);
     
-    // Don't restart the timer after auto-cleanup - let it naturally restart on next activity
+    // Don't restart the timer after cleanup - let it naturally restart on next activity
     return {
         success: true,
         removedCount: removedObjects.length,

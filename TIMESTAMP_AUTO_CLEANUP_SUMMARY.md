@@ -1,4 +1,4 @@
-# Summary: Timestamp Tracking & Auto-Cleanup Implementation
+# Summary: Timestamp Tracking & Auto-Initialize Implementation
 
 ## What Was Added
 
@@ -11,20 +11,22 @@ Yes, the system now records timestamps for every object when it's created!
 - Timestamps are automatically deleted when objects are removed
 - Timestamps are included in all `getGardenState()` responses
 
-### ✅ Auto-Cleanup After 5 Minutes of Inactivity
+### ✅ Auto-Initialize After 5 Minutes of Inactivity
 
 **Behavior:**
-- ⏱️ 5-minute inactivity timer starts/resets on any object add/remove
-- 🗑️ When timer expires: removes **oldest half** of objects
-- 🔄 Timer resets on ANY activity (add/remove operations)
-- ⏹️ Timer stops if garden is empty
+- ⏱️ 5-minute inactivity timer **always runs**, even when garden is empty
+- 🔄 When timer expires: **reinitializes garden** (clears all, adds 6 default objects)
+- 🌱 Default objects: LobsterSaxophone, HandButterfly, BreadHead, EggEye, ThumbClock, HeadDrawer
+- 🛡️ **Protection:** Gardens with 1-6 objects are protected from auto-initialization
+- ✅ **Empty gardens (0 objects) and gardens with 7+ objects will auto-initialize**
 
 **Example:**
 ```
-10 objects → 5 min inactivity → removes 5 oldest
-7 objects → 5 min inactivity → removes 3 oldest
-3 objects → 5 min inactivity → removes 1 oldest
-1 object → 5 min inactivity → no removal
+10 objects → 5 min inactivity → clears all, adds 6 default objects ✅
+7 objects → 5 min inactivity → clears all, adds 6 default objects ✅
+6 objects → 5 min inactivity → no change (1-6 protected) 🛡️
+3 objects → 5 min inactivity → no change (1-6 protected) 🛡️
+0 objects (empty) → 5 min inactivity → adds 6 default objects ✅
 ```
 
 ## Files Modified
@@ -35,7 +37,8 @@ Yes, the system now records timestamps for every object when it's created!
 - `inactivityTimer` - Timer variable
 - `INACTIVITY_TIMEOUT` - 5 minute constant
 - `resetInactivityTimer()` - Manages timer lifecycle
-- `removeOldestHalf()` - Cleanup function
+- `autoInitializeGarden()` - Auto-initialization function (called on 5-min timeout)
+- `removeOldestHalf()` - Manual cleanup function (for API endpoint)
 - `objectTimestamps` field to `GardenData`
 
 **Updated:**
