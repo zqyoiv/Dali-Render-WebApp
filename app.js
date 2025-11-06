@@ -366,6 +366,37 @@ app.post('/cleanup-oldest', (req, res) => {
     }
 });
 
+// POST route to initialize garden (clear and add 6 default objects)
+app.post('/init-garden', (req, res) => {
+    try {
+        console.log('\n🌱 Manually initializing garden...');
+        const { initializeGarden } = require('./object-manage/object-manager');
+        const result = initializeGarden();
+        
+        if (result.success) {
+            console.log('✅ Garden initialized successfully\n');
+            res.json({
+                success: true,
+                message: result.message,
+                gardenState: result.gardenState,
+                oscSent: result.oscSent
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to initialize garden'
+            });
+        }
+    } catch (error) {
+        const errorMessage = `Error initializing garden: ${error.message}`;
+        console.error(`❌ ${errorMessage}`);
+        res.status(500).json({
+            success: false,
+            message: errorMessage
+        });
+    }
+});
+
 // POST route for batch adding objects (set entire garden)
 app.post('/set-garden', (req, res) => {
     try {
